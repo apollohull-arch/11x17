@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Batch 11x17 Image Resizer</title>
+  <!-- JSZip for batch downloading -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 30px; display: flex; flex-direction: column; align-items: center; }
+    .card { background: #1e1e1e; padding: 24px; border-radius: 12px; max-width: 650px; width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,0.5); text-align: center; }
+    h1 { margin-top: 0; font-size: 1.5rem; color: #fff; }
+    p { font-size: 0.9rem; color: #aaa; }
+    .controls { display: flex; flex-direction: column; gap: 15px; margin: 20px 0; text-align: left; }
+    label { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #888; }
+    input[type="number"], select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; box-sizing: border-box; }
+    .drop-zone { border: 2px dashed #444; padding: 30px; border-radius: 8px; cursor: pointer; transition: 0.2s; background: #262626; margin-top: 10px; }
+    .drop-zone:hover { border-color: #007aff; background: #2d2d2d; }
+    button { background: #007aff; color: white; border: none; padding: 12px 20px; font-size: 1rem; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%; margin-top: 15px; }
+    button:disabled { background: #444; cursor: not-allowed; }
+    #status { margin-top: 15px; font-weight: 500; font-size: 0.9rem; color: #007aff; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Bulk Square to 11x17 Converter</h1>
+  <p>Generates an 11x17 layout with a heavily blurred, darkened background fill and places your square image centered on top.</p>
+  
+  <div class="controls">
+    <div>
+      <label>Target Height (Pixels) - Default: 11x17 @ 300 DPI</label>
+      <input type="number" id="heightInput" value="5100">
+      <small style="color: #666; display: block; margin-top: 4px;">Width auto-calculated to match 11:17 aspect ratio (3300 x 5100 px).</small>
+    </div>
+    
+    <div>
+      <label>Background Blur Strength</label>
+      <input type="number" id="blurInput" value="60">
+    </div>
+
+    <div>
+      <label>Background Darkness (Dimming)</label>
+      <select id="darkenSelect">
+        <option value="0.3">30% Darker</option>
+        <option value="0.15" selected>15% Darker (Recommended)</option>
+        <option value="0">Original Brightness</option>
+      </select>
+    </div>
+    
+    <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
+      <strong>Click or Drag Square Images Here</strong>
+      <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
+    </div>
+  </div>
+
+  <button id="processBtn" disabled>Process & Download ZIP</button>
+  <div id="status"></div>
+</div>
+
+<script>
+  const fileInput = document.getElementById('fileInput');
+  const processBtn = document.getElementById('processBtn');
+  const status = document.getElementById('status');
+  let selectedFiles = [];
+
+  fileInput.addEventListener('change', (e) => {
+    selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length > 0) {
+      processBtn.disabled = false;
+      status.innerText = `${selectedFiles.length} image(s) selected. Ready to convert.`;
+    }
+  });
+
+  processBtn.addEventListener('click', async () => {
+    processBtn.disabled = true;
+    const zip = new JSZip();
+    const targetHeight = parseInt(document.getElementById('heightInput').value) || 5100;
+    const targetWidth = Math.round(targetHeight * (11 / 17)); // 3300px for 5100px height
+    const blurAmount = parseInt(document.getElementById('blurInput').value) || 60;
+    const dimOpacity = parseFloat(document.getElementById('darkenSelect').value);
+
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      status.innerText = `Processing image ${i + 1} of ${selectedFiles.length}...`;
+      
+      const blob = await processImage(file, targetWidth, targetHeight, blurAmount, dimOpacity);
+      const originalName = file.name.substring(0, file.name.lastIndexOf('.'));
+      zip.file(`${originalName}_11x17.jpg`, blob);
+    }
+
+    status.innerText = 'Creating ZIP file...';
+    const content = await zip.generateAsync({ type: 'blob' });
+    
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(content);
+    link.download = 'resized_11x17_images.zip';
+    link.click();
+    
+    status.innerText = 'Complete! ZIP file downloaded.';
+    processBtn.disabled = false;
+  });
+
+  function processImage(file, width, height, blur, dim) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+
+        // 1. Draw Blurred Cover Background
+        ctx.save();
+        ctx.filter = `blur(${blur}px)`;
+        // Scale background up to cover full 11x17 canvas
+        const scale = Math.max(width / img.width, height / img.height);
+        const bgW = img.width * scale;
+        const bgH = img.height * scale;
+        const bgX = (width - bgW) / 2;
+        const bgY = (height - bgH) / 2;
+        
+        // Draw slightly larger to avoid white edges from CSS blur filter
+        ctx.drawImage(img, bgX - blur, bgY - blur, bgW + (blur * 2), bgH + (blur * 2));
+        ctx.restore();
+
+        // 2. Optional Dim Overlay on Background
+        if (dim > 0) {
+          ctx.fillStyle = `rgba(0, 0, 0, ${dim})`;
+          ctx.fillRect(0, 0, width, height);
+        }
+
+        // 3. Draw Sharp Main Square Image Centered
+        const targetSquareSize = width; // Fits wall-to-wall horizontally
+        const squareX = 0;
+        const squareY = (height - targetSquareSize) / 2; // Vertically centered
+        
+        ctx.drawImage(img, squareX, squareY, targetSquareSize, targetSquareSize);
+
+        // Export as High-Quality JPEG Blob
+        canvas.toBlob((blob) => {
+          URL.revokeObjectURL(img.src);
+          resolve(blob);
+        }, 'image/jpeg', 0.92);
+      };
+    });
+  }
+</script>
+
+</body>
+</html>
